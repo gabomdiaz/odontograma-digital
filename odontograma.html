@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odontograma Digital Pro</title>
+    <!-- Tailwind CSS para Estilos -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- React y Babel para ejecutar el código -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://unpkg.com/lucide-react@latest"></script>
+    <style>
+        @media print {
+            body { -webkit-print-color-adjust: exact; print-color-adjust: exact; background-color: white !important; }
+            .print-hide { display: none !important; }
+            .print-grid { display: grid !important; }
+            .print-shadow-none { box-shadow: none !important; border: 1px solid #e2e8f0; }
+            .print-break-inside-avoid { break-inside: avoid; page-break-inside: avoid; }
+        }
+        /* Ajuste para que el odontograma no se rompa en móviles */
+        .odontograma-container {
+            min-width: 750px;
+        }
+        @media (max-width: 768px) {
+            .scroll-hint { display: block; }
+        }
+    </style>
+</head>
+<body class="bg-sky-50">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+        const { 
+            Printer, User, Phone, Mail, FileText, Trash2, Circle, X, 
+            Activity, Save, Plus, Users, ArrowLeft, Calendar, Check, 
+            History, Clock 
+        } = lucide;
+
+        // --- NOMENCLATURAS Y DATOS ---
+        const PERMANENT_QUADRANTS = {
+            UR: { fdi: [18, 17, 16, 15, 14, 13, 12, 11], universal: [1, 2, 3, 4, 5, 6, 7, 8] },
+            UL: { fdi: [21, 22, 23, 24, 25, 26, 27, 28], universal: [9, 10, 11, 12, 13, 14, 15, 16] },
+            LR: { fdi: [48, 47, 46, 45, 44, 43, 42, 41], universal: [32, 31, 30, 29, 28, 27, 26, 25] },
+            LL: { fdi: [31, 32, 33, 34, 35, 36, 37, 38], universal: [24, 23, 22, 21, 20, 19, 18, 17] }
+        };
+
+        const PRIMARY_QUADRANTS = {
+            UR: { fdi: [55, 54, 53, 52, 51], universal: ['A', 'B', 'C', 'D', 'E'] },
+            UL: { fdi: [61, 62, 63, 64, 65], universal: ['F', 'G', 'H', 'I', 'J'] },
+            LR: { fdi: [85, 84, 83, 82, 81], universal: ['T', 'S', 'R', 'Q', 'P'] },
+            LL: { fdi: [71, 72, 73, 74, 75], universal: ['O', 'N', 'M', 'L', 'K'] }
+        };
+
+        const ALL_FDI_TEETH = [
+            ...PERMANENT_QUADRANTS.UR.fdi, ...PERMANENT_QUADRANTS.UL.fdi, ...PERMANENT_QUADRANTS.LR.fdi, ...PERMANENT_QUADRANTS.LL.fdi,
+            ...PRIMARY_QUADRANTS.UR.fdi, ...PRIMARY_QUADRANTS.UL.fdi, ...PRIMARY_QUADRANTS.LR.fdi, ...PRIMARY_QUADRANTS.LL.fdi
+        ];
+
+        const TOOLS = [
+            { id: 'caries', name: 'Caries', type: 'surface', color: '#ef4444', icon: '🔴' },
+            { id: 'restoration', name: 'Restauración', type: 'surface', color: '#3b82f6', icon: '🔵' },
+            { id: 'missing', name: 'Ausente', type: 'whole', icon: '✕' },
+            { id: 'extract', name: 'Extracción Ind.', type: 'whole', icon: '⚠️' },
+            { id: 'crown', name: 'Corona', type: 'whole', icon: '⭕' },
+            { id: 'clear', name: 'Limpiar', type: 'action', icon: '🗑️' }
+        ];
+
+        const initialTeethState = ALL_FDI_TEETH.reduce((acc, id) => {
+            acc[id] = { top: '', bottom: '', left: '', right: '', center: '', whole: '' };
+            return acc;
+        }, {});
+
+        const surfaceNames = { top: 'Sup', bottom: 'Inf', left: 'Izq', right: 'Der', center: 'Centro', whole: 'Todo' };
+        const toolNames = { '': 'Sano', caries: 'Caries', restoration: 'Resina', missing: 'Ausente', extract: 'Extracción', crown: 'Corona' };
+
+        function App() {
+            const [view, setView] = useState('home');
+            const [patientsList, setPatientsList] = useState([]);
+            const [currentPatientId, setCurrentPatientId] = useState(null);
+            const [showSaveSuccess, setShowSaveSuccess] = useState(false);
+            const [patient, setPatient] = useState({ name: '', phone: '', email: '' });
+            const [notes, setNotes] = useState('');
+            const [teeth, setTeeth] = useState(initialTeethState);
+            const [lastSavedTeeth, setLastSavedTeeth] = useState(initialTeethState);
+            const [logs, setLogs] = useState([]);
+            const [currentTool, setCurrentTool] = useState(TOOLS[0]);
+            const [nomenclature, setNomenclature] = useState('FDI');
+            const [dentition, setDentition] = useState('adult');
+
+            useEffect(() => {
+                const savedData = localStorage.getItem('odontogram_data_v2');
+                if (savedData) setPatientsList(JSON.parse(savedData));
+            }, []);
+
+            const handleNewPatient = () => {
+                setCurrentPatientId(null);
+                setPatient({ name: '', phone: '', email: '' });
+                setNotes('');
+                setTeeth(initialTeethState);
+                setLastSavedTeeth(initialTeethState);
+                setLogs([]);
+                setView('editor');
+            };
+
+            const handleOpenPatient = (id) => {
+                const p = patientsList.find(x => x.id === id);
+                if (p) {
+                    setCurrentPatientId(p.id);
+                    setPatient(p.patient);
+                    setNotes(p.notes);
+                    setTeeth(p.teeth);
+                    setLastSavedTeeth(p.teeth);
+                    setLogs(p.logs || []);
+                    setDentition(p.dentition || 'adult');
+                    setView('editor');
+                }
+            };
+
+            const handleSave = () => {
+                const id = currentPatientId || Date.now().toString();
+                const changes = [];
+                Object.keys(teeth).forEach(toothId => {
+                    const current = teeth[toothId];
+                    const prev = lastSavedTeeth[toothId];
+                    Object.keys(current).forEach(surf => {
+                        if (current[surf] !== prev[surf]) {
+                            changes.push(`Diente ${toothId} (${surfaceNames[surf]}): ${toolNames[prev[surf]] || 'Sano'} → ${toolNames[current[surf]] || 'Sano'}`);
+                        }
+                    });
+                });
+
+                let newLogs = [...logs];
+                if (changes.length > 0) {
+                    newLogs = [{ id: Date.now(), timestamp: new Date().toISOString(), changes }, ...logs];
+                }
+
+                const newData = { id, patient, notes, teeth, logs: newLogs, dentition, lastModified: new Date().toISOString() };
+                const newList = currentPatientId ? patientsList.map(p => p.id === id ? newData : p) : [...patientsList, newData];
+                
+                setPatientsList(newList);
+                localStorage.setItem('odontogram_data_v2', JSON.stringify(newList));
+                setLogs(newLogs);
+                setLastSavedTeeth({...teeth});
+                setCurrentPatientId(id);
+                setShowSaveSuccess(true);
+                setTimeout(() => setShowSaveSuccess(false), 2000);
+            };
+
+            const handleToothClick = (fdiId, surface) => {
+                setTeeth(prev => {
+                    const tooth = { ...prev[fdiId] };
+                    if (currentTool.id === 'clear') return { ...prev, [fdiId]: { top: '', bottom: '', left: '', right: '', center: '', whole: '' } };
+                    if (currentTool.type === 'whole') {
+                        tooth.whole = tooth.whole === currentTool.id ? '' : currentTool.id;
+                    } else {
+                        tooth[surface] = tooth[surface] === currentTool.id ? '' : currentTool.id;
+                        tooth.whole = '';
+                    }
+                    return { ...prev, [fdiId]: tooth };
+                });
+            };
+
+            const Tooth = ({ fdiId, index, quadrant }) => {
+                const state = teeth[fdiId];
+                const displayId = nomenclature === 'FDI' ? fdiId : PERMANENT_QUADRANTS[quadrant].universal[index];
+                const getFill = (s) => s === 'caries' ? '#ef4444' : (s === 'restoration' ? '#3b82f6' : '#fff');
+
+                return (
+                    <div className="flex flex-col items-center">
+                        <span className="text-[10px] font-bold text-sky-800 mb-1">{displayId}</span>
+                        <div className="relative w-10 h-10 border border-slate-100 bg-white">
+                            <svg viewBox="0 0 100 100" className="w-full h-full">
+                                <polygon points="0,0 100,0 75,25 25,25" fill={getFill(state.top)} stroke="#94a3b8" onClick={() => handleToothClick(fdiId, 'top')} />
+                                <polygon points="100,0 100,100 75,75 75,25" fill={getFill(state.right)} stroke="#94a3b8" onClick={() => handleToothClick(fdiId, 'right')} />
+                                <polygon points="100,100 0,100 25,75 75,75" fill={getFill(state.bottom)} stroke="#94a3b8" onClick={() => handleToothClick(fdiId, 'bottom')} />
+                                <polygon points="0,100 0,0 25,25 25,75" fill={getFill(state.left)} stroke="#94a3b8" onClick={() => handleToothClick(fdiId, 'left')} />
+                                <rect x="25" y="25" width="50" height="50" fill={getFill(state.center)} stroke="#94a3b8" onClick={() => handleToothClick(fdiId, 'center')} />
+                                {state.whole === 'missing' && <g><line x1="5" y1="5" x2="95" y2="95" stroke="#000" strokeWidth="8" /><line x1="95" y1="5" x2="5" y2="95" stroke="#000" strokeWidth="8" /></g>}
+                                {state.whole === 'extract' && <g><line x1="5" y1="5" x2="95" y2="95" stroke="#ef4444" strokeWidth="8" /><line x1="95" y1="5" x2="5" y2="95" stroke="#ef4444" strokeWidth="8" /></g>}
+                                {state.whole === 'crown' && <circle cx="50" cy="50" r="40" fill="none" stroke="#3b82f6" strokeWidth="8" />}
+                            </svg>
+                        </div>
+                    </div>
+                );
+            };
+
+            // --- RENDERIZADO DE VISTAS ---
+            if (view === 'home') {
+                return (
+                    <div className="p-6 max-w-5xl mx-auto">
+                        <div className="flex justify-between items-center mb-8 bg-white p-6 rounded-2xl shadow-sm border border-sky-100">
+                            <div>
+                                <h1 className="text-2xl font-bold text-sky-900">Panel Dental</h1>
+                                <p className="text-slate-500">Gestión de pacientes de Softr</p>
+                            </div>
+                            <button onClick={handleNewPatient} className="bg-sky-600 text-white px-4 py-2 rounded-xl flex items-center gap-2">
+                                <Plus size={18}/> Nuevo Registro
+                            </button>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            {patientsList.map(p => (
+                                <div key={p.id} onClick={() => handleOpenPatient(p.id)} className="bg-white p-4 rounded-xl border border-sky-100 shadow-sm cursor-pointer hover:shadow-md">
+                                    <h3 className="font-bold text-slate-800">{p.patient.name || 'Sin nombre'}</h3>
+                                    <p className="text-xs text-slate-500">{new Date(p.lastModified).toLocaleDateString()}</p>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="min-h-screen pb-20">
+                    <header className="bg-white border-b p-4 sticky top-0 z-20 flex justify-between items-center print-hide">
+                        <button onClick={() => setView('home')} className="text-slate-500 flex items-center gap-1"><ArrowLeft size={18}/> Volver</button>
+                        <div className="flex gap-2">
+                            <button onClick={handleSave} className={`px-4 py-2 rounded-lg text-sm font-bold ${showSaveSuccess ? 'bg-green-500 text-white' : 'bg-sky-600 text-white'}`}>
+                                {showSaveSuccess ? '¡Guardado!' : 'Guardar Info'}
+                            </button>
+                            <button onClick={() => window.print()} className="bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2">
+                                <Printer size={16}/> PDF
+                            </button>
+                        </div>
+                    </header>
+
+                    <div className="p-4 max-w-6xl mx-auto space-y-6">
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                            <div className="bg-white p-4 rounded-xl shadow-sm border space-y-4 print:border-none">
+                                <h2 className="font-bold text-sky-900 border-b pb-2">Paciente</h2>
+                                <input type="text" placeholder="Nombre completo" className="w-full border rounded p-2 text-sm" value={patient.name} onChange={e => setPatient({...patient, name: e.target.value})} />
+                                <div className="grid grid-cols-2 gap-2">
+                                    <input type="tel" placeholder="Teléfono" className="w-full border rounded p-2 text-sm" value={patient.phone} onChange={e => setPatient({...patient, phone: e.target.value})} />
+                                    <input type="email" placeholder="Email" className="w-full border rounded p-2 text-sm" value={patient.email} onChange={e => setPatient({...patient, email: e.target.value})} />
+                                </div>
+                                <textarea placeholder="Notas clínicas..." className="w-full border rounded p-2 text-sm h-32" value={notes} onChange={e => setNotes(e.target.value)}></textarea>
+                            </div>
+
+                            <div className="lg:col-span-2 space-y-6">
+                                <div className="bg-white p-4 rounded-xl border print-hide">
+                                    <div className="flex gap-2 mb-4 overflow-x-auto pb-2">
+                                        {TOOLS.map(t => (
+                                            <button key={t.id} onClick={() => setCurrentTool(t)} className={`px-3 py-2 rounded-lg text-xs whitespace-nowrap border flex items-center gap-2 ${currentTool.id === t.id ? 'bg-sky-50 border-sky-500' : 'bg-white'}`}>
+                                                <span>{t.icon}</span> {t.name}
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <button onClick={() => setDentition('adult')} className={`px-4 py-1 rounded text-xs ${dentition === 'adult' ? 'bg-sky-600 text-white' : 'bg-slate-100'}`}>Adulto</button>
+                                        <button onClick={() => setDentition('child')} className={`px-4 py-1 rounded text-xs ${dentition === 'child' ? 'bg-sky-600 text-white' : 'bg-slate-100'}`}>Infantil</button>
+                                    </div>
+                                </div>
+
+                                <div className="bg-white p-6 rounded-xl border overflow-x-auto print:border-slate-200">
+                                    <div className="odontograma-container space-y-10">
+                                        <div className="flex justify-center gap-8 relative">
+                                            <div className="flex gap-1">{ (dentition === 'adult' ? PERMANENT_QUADRANTS : PRIMARY_QUADRANTS).UR.fdi.map((id, i) => <Tooth key={id} fdiId={id} index={i} quadrant="UR"/>) }</div>
+                                            <div className="flex gap-1">{ (dentition === 'adult' ? PERMANENT_QUADRANTS : PRIMARY_QUADRANTS).UL.fdi.map((id, i) => <Tooth key={id} fdiId={id} index={i} quadrant="UL"/>) }</div>
+                                        </div>
+                                        <div className="flex justify-center gap-8 relative">
+                                            <div className="flex gap-1">{ (dentition === 'adult' ? PERMANENT_QUADRANTS : PRIMARY_QUADRANTS).LR.fdi.map((id, i) => <Tooth key={id} fdiId={id} index={i} quadrant="LR"/>) }</div>
+                                            <div className="flex gap-1">{ (dentition === 'adult' ? PERMANENT_QUADRANTS : PRIMARY_QUADRANTS).LL.fdi.map((id, i) => <Tooth key={id} fdiId={id} index={i} quadrant="LL"/>) }</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="bg-white p-6 rounded-xl border space-y-4">
+                                    <h2 className="font-bold text-sky-900 border-b pb-2 flex items-center gap-2"><History size={18}/> Evolución y Cambios</h2>
+                                    {logs.map(log => (
+                                        <div key={log.id} className="border-l-2 border-sky-200 pl-4 py-1">
+                                            <p className="text-xs font-bold text-slate-500">{new Date(log.timestamp).toLocaleString()}</p>
+                                            <ul className="text-sm space-y-1 mt-1">
+                                                {log.changes.map((c, i) => <li key={i} className="text-slate-600">• {c}</li>)}
+                                            </ul>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
