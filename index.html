@@ -14,38 +14,62 @@
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://unpkg.com/lucide-react@latest"></script>
     <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+        
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+        }
+
         @media print {
             body { -webkit-print-color-adjust: exact; print-color-adjust: exact; background-color: white !important; }
             .print-hide { display: none !important; }
             .odontograma-card { box-shadow: none !important; border: 1px solid #e2e8f0 !important; }
         }
+
         .custom-scrollbar::-webkit-scrollbar { width: 4px; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
-        .odontograma-container { min-width: 750px; }
         
+        .tooth-transition {
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
         #loading-overlay {
             position: fixed;
             inset: 0;
-            background: white;
+            background: #f8fafc;
             display: flex;
+            flex-direction: column;
             align-items: center;
             justify-content: center;
             z-index: 9999;
-            font-family: ui-sans-serif, system-ui, sans-serif;
-            font-weight: bold;
-            color: #0284c7;
+        }
+
+        .loader-dot {
+            width: 8px;
+            height: 8px;
+            background: #0284c7;
+            border-radius: 50%;
+            animation: bounce 0.5s infinite alternate;
+        }
+
+        @keyframes bounce {
+            from { transform: translateY(0); opacity: 0.5; }
+            to { transform: translateY(-10px); opacity: 1; }
         }
     </style>
 </head>
-<body class="bg-slate-50">
-    <div id="loading-overlay">Cargando DentalPro...</div>
+<body class="bg-[#F8FAFC]">
+    <div id="loading-overlay">
+        <div class="flex gap-2 mb-4">
+            <div class="loader-dot" style="animation-delay: 0s"></div>
+            <div class="loader-dot" style="animation-delay: 0.1s"></div>
+            <div class="loader-dot" style="animation-delay: 0.2s"></div>
+        </div>
+        <span class="text-slate-400 font-bold text-xs uppercase tracking-widest">Iniciando DentalPro</span>
+    </div>
     <div id="root"></div>
 
     <script type="text/babel">
-        /**
-         * FIX: Se envuelve en un bloque de ejecución inmediata para evitar 
-         * conflictos de re-declaración de variables globales en Vercel.
-         */
         (function() {
             const { useState, useEffect, useMemo, useCallback } = React;
 
@@ -68,7 +92,7 @@
                 ...PRIMARY_QUADRANTS.UR.fdi, ...PRIMARY_QUADRANTS.UL.fdi, ...PRIMARY_QUADRANTS.LR.fdi, ...PRIMARY_QUADRANTS.LL.fdi
             ];
 
-            const DENTAL_TOOLS_CONFIG = [
+            const DENTAL_TOOLS = [
                 { id: 'caries', name: 'Caries', type: 'surface', color: '#ef4444', icon: '🔴' },
                 { id: 'restoration', name: 'Resina', type: 'surface', color: '#3b82f6', icon: '🔵' },
                 { id: 'missing', name: 'Ausente', type: 'whole', icon: '✕' },
@@ -90,10 +114,10 @@
                 const [notes, setNotes] = useState('');
                 const [teeth, setTeeth] = useState(GET_INITIAL_TEETH());
                 const [dentition, setDentition] = useState('adult');
-                const [currentTool, setCurrentTool] = useState(DENTAL_TOOLS_CONFIG[0]);
+                const [currentTool, setCurrentTool] = useState(DENTAL_TOOLS[0]);
+                const [logs, setLogs] = useState([]);
                 const [showSaveSuccess, setShowSaveSuccess] = useState(false);
 
-                // Carga de iconos segura
                 const Icons = useMemo(() => {
                     const l = window.lucideReact || {};
                     return {
@@ -105,28 +129,28 @@
                         Plus: l.Plus || (() => null),
                         ArrowLeft: l.ArrowLeft || (() => null),
                         Check: l.Check || (() => null),
-                        Search: l.Search || (() => null)
+                        Search: l.Search || (() => null),
+                        Clock: l.History || l.Clock || (() => null),
+                        Trash: l.Trash2 || (() => null)
                     };
                 }, []);
 
                 useEffect(() => {
                     const loader = document.getElementById('loading-overlay');
-                    if (loader) loader.style.display = 'none';
+                    if (loader) setTimeout(() => loader.style.display = 'none', 800);
 
-                    const stored = localStorage.getItem('odontogram_data_v10');
+                    const stored = localStorage.getItem('dental_pro_db_v11');
                     if (stored) {
                         try {
                             setPatientsList(JSON.parse(stored));
-                        } catch (e) {
-                            console.error("Error al cargar datos", e);
-                        }
+                        } catch (e) { console.error(e); }
                     }
                 }, []);
 
                 const handleSave = useCallback(() => {
                     const id = currentPatientId || Date.now().toString();
                     const newData = { 
-                        id, patient, notes, teeth, dentition, 
+                        id, patient, notes, teeth, dentition, logs,
                         lastModified: new Date().toISOString() 
                     };
                     const newList = currentPatientId 
@@ -134,42 +158,60 @@
                         : [newData, ...patientsList];
                     
                     setPatientsList(newList);
-                    localStorage.setItem('odontogram_data_v10', JSON.stringify(newList));
+                    localStorage.setItem('dental_pro_db_v11', JSON.stringify(newList));
                     setCurrentPatientId(id);
                     setShowSaveSuccess(true);
                     setTimeout(() => setShowSaveSuccess(false), 2000);
-                }, [currentPatientId, patient, notes, teeth, dentition, patientsList]);
+                }, [currentPatientId, patient, notes, teeth, dentition, logs, patientsList]);
 
                 const handleToothClick = (fdiId, surface) => {
+                    const toothBefore = { ...teeth[fdiId] };
+                    let actionDesc = "";
+
                     setTeeth(prev => {
                         const tooth = { ...prev[fdiId] };
-                        if (currentTool.id === 'clear') return { ...prev, [fdiId]: { top: '', bottom: '', left: '', right: '', center: '', whole: '' } };
+                        if (currentTool.id === 'clear') {
+                            actionDesc = `Se limpió el diente ${fdiId}`;
+                            return { ...prev, [fdiId]: { top: '', bottom: '', left: '', right: '', center: '', whole: '' } };
+                        }
+                        
                         if (currentTool.type === 'whole') {
-                            tooth.whole = tooth.whole === currentTool.id ? '' : currentTool.id;
+                            const active = tooth.whole === currentTool.id;
+                            tooth.whole = active ? '' : currentTool.id;
+                            actionDesc = `${active ? 'Removido' : 'Aplicado'} ${currentTool.name} en diente ${fdiId}`;
                         } else {
-                            tooth[surface] = tooth[surface] === currentTool.id ? '' : currentTool.id;
+                            const active = tooth[surface] === currentTool.id;
+                            tooth[surface] = active ? '' : currentTool.id;
                             tooth.whole = '';
+                            actionDesc = `${active ? 'Removido' : 'Detectado'} ${currentTool.name} en cara ${surface} del diente ${fdiId}`;
                         }
                         return { ...prev, [fdiId]: tooth };
                     });
+
+                    setLogs(prev => [{
+                        id: Date.now(),
+                        timestamp: new Date().toISOString(),
+                        text: actionDesc
+                    }, ...prev].slice(0, 50));
                 };
 
                 const ToothComp = ({ fdiId }) => {
                     const state = teeth[fdiId] || { top: '', bottom: '', left: '', right: '', center: '', whole: '' };
                     const getFill = (s) => s === 'caries' ? '#ef4444' : (s === 'restoration' ? '#3b82f6' : '#fff');
+                    
                     return (
-                        <div className="flex flex-col items-center gap-1 group">
-                            <span className="text-[10px] font-bold text-slate-400 group-hover:text-sky-600">{fdiId}</span>
-                            <div className="relative w-10 h-10 border border-slate-200 bg-white shadow-sm hover:border-sky-400 transition-all transform hover:scale-110 z-10 hover:z-20">
+                        <div className="flex flex-col items-center gap-1.5">
+                            <span className="text-[10px] font-black text-slate-400">{fdiId}</span>
+                            <div className="relative w-11 h-11 border border-slate-100 bg-white shadow-[0_2px_10px_-3px_rgba(0,0,0,0.07)] rounded-sm tooth-transition hover:shadow-xl hover:-translate-y-1 z-10 hover:z-20 overflow-hidden">
                                 <svg viewBox="0 0 100 100" className="w-full h-full cursor-pointer">
-                                    <polygon points="0,0 100,0 75,25 25,25" fill={getFill(state.top)} stroke="#e2e8f0" onClick={() => handleToothClick(fdiId, 'top')} />
-                                    <polygon points="100,0 100,100 75,75 75,25" fill={getFill(state.right)} stroke="#e2e8f0" onClick={() => handleToothClick(fdiId, 'right')} />
-                                    <polygon points="100,100 0,100 25,75 75,75" fill={getFill(state.bottom)} stroke="#e2e8f0" onClick={() => handleToothClick(fdiId, 'bottom')} />
-                                    <polygon points="0,100 0,0 25,25 25,75" fill={getFill(state.left)} stroke="#e2e8f0" onClick={() => handleToothClick(fdiId, 'left')} />
-                                    <rect x="25" y="25" width="50" height="50" fill={getFill(state.center)} stroke="#e2e8f0" onClick={() => handleToothClick(fdiId, 'center')} />
-                                    {state.whole === 'missing' && <g><line x1="10" y1="10" x2="90" y2="90" stroke="#334155" strokeWidth="8" /><line x1="90" y1="10" x2="10" y2="90" stroke="#334155" strokeWidth="8" /></g>}
-                                    {state.whole === 'extract' && <g><line x1="10" y1="10" x2="90" y2="90" stroke="#ef4444" strokeWidth="8" /><line x1="90" y1="10" x2="10" y2="90" stroke="#ef4444" strokeWidth="8" /></g>}
-                                    {state.whole === 'crown' && <circle cx="50" cy="50" r="40" fill="none" stroke="#3b82f6" strokeWidth="6" />}
+                                    <polygon points="0,0 100,0 75,25 25,25" fill={getFill(state.top)} stroke="#cbd5e1" strokeWidth="1" onClick={() => handleToothClick(fdiId, 'top')} />
+                                    <polygon points="100,0 100,100 75,75 75,25" fill={getFill(state.right)} stroke="#cbd5e1" strokeWidth="1" onClick={() => handleToothClick(fdiId, 'right')} />
+                                    <polygon points="100,100 0,100 25,75 75,75" fill={getFill(state.bottom)} stroke="#cbd5e1" strokeWidth="1" onClick={() => handleToothClick(fdiId, 'bottom')} />
+                                    <polygon points="0,100 0,0 25,25 25,75" fill={getFill(state.left)} stroke="#cbd5e1" strokeWidth="1" onClick={() => handleToothClick(fdiId, 'left')} />
+                                    <rect x="25" y="25" width="50" height="50" fill={getFill(state.center)} stroke="#cbd5e1" strokeWidth="1" onClick={() => handleToothClick(fdiId, 'center')} />
+                                    {state.whole === 'missing' && <g><line x1="15" y1="15" x2="85" y2="85" stroke="#334155" strokeWidth="10" /><line x1="85" y1="15" x2="15" y2="85" stroke="#334155" strokeWidth="10" /></g>}
+                                    {state.whole === 'extract' && <g><line x1="15" y1="15" x2="85" y2="85" stroke="#ef4444" strokeWidth="10" /><line x1="85" y1="15" x2="15" y2="85" stroke="#ef4444" strokeWidth="10" /></g>}
+                                    {state.whole === 'crown' && <circle cx="50" cy="50" r="38" fill="none" stroke="#3b82f6" strokeWidth="8" />}
                                 </svg>
                             </div>
                         </div>
@@ -178,36 +220,46 @@
 
                 if (view === 'home') {
                     return (
-                        <div className="p-6 md:p-12 max-w-6xl mx-auto">
-                            <header className="flex flex-col md:flex-row justify-between items-start md:items-center mb-12 gap-6">
+                        <div className="p-8 md:p-16 max-w-6xl mx-auto">
+                            <header className="flex flex-col md:flex-row justify-between items-start md:items-center mb-16 gap-8">
                                 <div>
-                                    <h1 className="text-4xl font-black text-slate-900 tracking-tight mb-1 italic">DENTAL<span className="text-sky-600">PRO</span></h1>
-                                    <p className="text-slate-500 font-medium">Gestión Odontológica Profesional</p>
+                                    <h1 className="text-5xl font-[900] text-slate-900 tracking-tighter mb-2 italic">DENTAL<span className="text-sky-600">PRO</span></h1>
+                                    <div className="flex items-center gap-2">
+                                        <div className="w-8 h-1 bg-sky-500 rounded-full"></div>
+                                        <p className="text-slate-400 font-bold uppercase tracking-[0.2em] text-[10px]">Gestión Clínica Digital</p>
+                                    </div>
                                 </div>
-                                <button onClick={() => { setView('editor'); setCurrentPatientId(null); setPatient({name:'', phone:'', email:''}); setTeeth(GET_INITIAL_TEETH()); setNotes(''); }} className="bg-sky-600 hover:bg-sky-700 text-white px-8 py-4 rounded-2xl font-bold flex items-center gap-2 shadow-xl shadow-sky-100 transition-all active:scale-95">
-                                    <Icons.Plus size={20}/> Nuevo Paciente
+                                <button onClick={() => { setView('editor'); setCurrentPatientId(null); setPatient({name:'', phone:'', email:''}); setTeeth(GET_INITIAL_TEETH()); setNotes(''); setLogs([]); }} className="bg-slate-900 hover:bg-sky-600 text-white px-10 py-5 rounded-[2rem] font-extrabold flex items-center gap-3 shadow-2xl transition-all hover:scale-105 active:scale-95 group">
+                                    <Icons.Plus size={22} className="group-hover:rotate-90 transition-transform duration-300"/> Nuevo Paciente
                                 </button>
                             </header>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
                                 {patientsList.length === 0 ? (
-                                    <div className="col-span-full py-24 text-center bg-white rounded-[2rem] border-2 border-dashed border-slate-200">
-                                        <div className="bg-slate-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-slate-300">
-                                            <Icons.Search size={32}/>
+                                    <div className="col-span-full py-32 text-center bg-white rounded-[3rem] border border-slate-100 shadow-sm">
+                                        <div className="bg-slate-50 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6 text-slate-200">
+                                            <Icons.Search size={40}/>
                                         </div>
-                                        <p className="text-slate-400 font-bold uppercase tracking-widest text-xs">No hay pacientes registrados</p>
+                                        <p className="text-slate-400 font-bold uppercase tracking-widest text-[11px]">Bandeja de pacientes vacía</p>
                                     </div>
                                 ) : (
                                     patientsList.map(p => (
-                                        <div key={p.id} onClick={() => { setCurrentPatientId(p.id); setPatient(p.patient); setNotes(p.notes); setTeeth(p.teeth); setDentition(p.dentition || 'adult'); setView('editor'); }} className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm cursor-pointer hover:shadow-2xl hover:border-sky-200 transition-all group relative overflow-hidden">
-                                            <div className="bg-sky-50 w-12 h-12 rounded-2xl flex items-center justify-center text-sky-600 mb-6 group-hover:bg-sky-600 group-hover:text-white transition-colors">
-                                                <Icons.User size={24}/>
+                                        <div key={p.id} onClick={() => { 
+                                            setCurrentPatientId(p.id); setPatient(p.patient); setNotes(p.notes); 
+                                            setTeeth(p.teeth); setDentition(p.dentition || 'adult'); setLogs(p.logs || []); setView('editor'); 
+                                        }} className="bg-white p-8 rounded-[3rem] border border-slate-50 shadow-sm cursor-pointer hover:shadow-[0_30px_60px_-15px_rgba(0,0,0,0.1)] hover:-translate-y-2 transition-all group border-b-4 border-b-transparent hover:border-b-sky-500">
+                                            <div className="bg-sky-50 w-14 h-14 rounded-2xl flex items-center justify-center text-sky-600 mb-8 group-hover:bg-sky-600 group-hover:text-white transition-all">
+                                                <Icons.User size={28}/>
                                             </div>
-                                            <h3 className="font-bold text-slate-800 text-xl mb-1">{p.patient.name || 'Paciente sin nombre'}</h3>
-                                            <div className="flex items-center gap-2 text-slate-400 mb-4">
+                                            <h3 className="font-extrabold text-slate-800 text-2xl mb-1 leading-tight">{p.patient.name || 'Sin Nombre'}</h3>
+                                            <div className="flex items-center gap-2 text-slate-400 mb-8">
                                                 <Icons.Phone size={14}/>
-                                                <span className="text-sm font-medium">{p.patient.phone || 'Sin teléfono'}</span>
+                                                <span className="text-sm font-semibold">{p.patient.phone || 'No registrado'}</span>
                                             </div>
-                                            <p className="text-slate-300 text-[10px] font-black uppercase tracking-widest border-t pt-4">Visita: {new Date(p.lastModified).toLocaleDateString()}</p>
+                                            <div className="flex justify-between items-center pt-6 border-t border-slate-50">
+                                                <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest">Activo</span>
+                                                <span className="text-[10px] font-bold text-slate-400">{new Date(p.lastModified).toLocaleDateString()}</span>
+                                            </div>
                                         </div>
                                     ))
                                 )}
@@ -217,75 +269,109 @@
                 }
 
                 return (
-                    <div className="min-h-screen flex flex-col bg-slate-50">
-                        <header className="bg-white/90 backdrop-blur-md border-b p-4 sticky top-0 z-50 flex justify-between items-center print-hide shadow-sm">
-                            <button onClick={() => setView('home')} className="text-slate-600 hover:text-slate-900 flex items-center gap-2 font-bold px-4 py-2 rounded-xl hover:bg-slate-100 transition-all">
-                                <Icons.ArrowLeft size={18}/> Salir
+                    <div className="min-h-screen flex flex-col bg-[#F8FAFC]">
+                        <header className="bg-white/80 backdrop-blur-xl border-b border-slate-100 p-5 sticky top-0 z-50 flex justify-between items-center print-hide">
+                            <button onClick={() => setView('home')} className="text-slate-500 hover:text-slate-900 flex items-center gap-3 font-bold px-5 py-2.5 rounded-2xl hover:bg-slate-50 transition-all">
+                                <Icons.ArrowLeft size={20}/> Volver al Inicio
                             </button>
-                            <div className="flex gap-3">
-                                <button onClick={handleSave} className={`px-8 py-3 rounded-xl font-bold flex items-center gap-2 transition-all ${showSaveSuccess ? 'bg-green-500 text-white' : 'bg-sky-600 text-white shadow-lg shadow-sky-100 hover:bg-sky-700 active:scale-95'}`}>
+                            <div className="flex gap-4">
+                                <button onClick={handleSave} className={`px-10 py-3.5 rounded-2xl font-black flex items-center gap-2 transition-all shadow-xl active:scale-95 ${showSaveSuccess ? 'bg-green-500 text-white shadow-green-100' : 'bg-sky-600 text-white shadow-sky-100 hover:bg-sky-700'}`}>
                                     {showSaveSuccess ? <Icons.Check size={20}/> : <Icons.Save size={20}/>}
-                                    <span>{showSaveSuccess ? 'Guardado' : 'Guardar'}</span>
+                                    <span>{showSaveSuccess ? 'Guardado Exitoso' : 'Guardar Ficha'}</span>
                                 </button>
-                                <button onClick={() => window.print()} className="bg-slate-900 hover:bg-black text-white px-8 py-3 rounded-xl font-bold flex items-center gap-2 transition-all shadow-lg shadow-slate-200 active:scale-95">
-                                    <Icons.Printer size={20}/> Exportar
+                                <button onClick={() => window.print()} className="bg-slate-900 hover:bg-black text-white px-10 py-3.5 rounded-2xl font-black flex items-center gap-2 transition-all shadow-xl active:scale-95">
+                                    <Icons.Printer size={20}/> Imprimir
                                 </button>
                             </div>
                         </header>
 
-                        <main className="p-4 md:p-8 max-w-7xl mx-auto w-full flex-1 grid grid-cols-1 lg:grid-cols-12 gap-8">
-                            <div className="lg:col-span-4 space-y-6">
-                                <section className="bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm odontograma-card">
-                                    <h2 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.25em] mb-8 flex items-center gap-2 italic">
-                                        <Icons.Activity size={14} className="text-sky-500"/> Ficha del Paciente
+                        <main className="p-6 md:p-10 max-w-full mx-auto w-full flex-1 grid grid-cols-1 lg:grid-cols-12 gap-10">
+                            {/* Panel Izquierdo: Información y Logs */}
+                            <div className="lg:col-span-4 space-y-8">
+                                <section className="bg-white p-10 rounded-[3rem] border border-slate-100 shadow-sm odontograma-card">
+                                    <h2 className="text-[11px] font-[900] text-slate-400 uppercase tracking-[0.3em] mb-10 flex items-center gap-3 italic">
+                                        <div className="w-2 h-2 rounded-full bg-sky-500"></div> Ficha de Identificación
                                     </h2>
-                                    <div className="space-y-6">
-                                        <div className="space-y-2">
-                                            <label className="text-[10px] font-black text-slate-500 ml-1">NOMBRE COMPLETO</label>
-                                            <input type="text" className="w-full border-2 border-slate-50 bg-slate-50 p-4 rounded-2xl text-sm outline-none focus:bg-white focus:border-sky-200 transition-all font-bold text-slate-700" placeholder="Ej. Juan Pérez" value={patient.name} onChange={e => setPatient({...patient, name: e.target.value})} />
+                                    <div className="space-y-8">
+                                        <div className="group">
+                                            <label className="text-[10px] font-black text-slate-400 ml-1 mb-2 block tracking-widest group-focus-within:text-sky-500 transition-colors">NOMBRE DEL PACIENTE</label>
+                                            <input type="text" className="w-full border-2 border-slate-50 bg-slate-50 p-5 rounded-[1.5rem] text-sm outline-none focus:bg-white focus:border-sky-100 transition-all font-bold text-slate-700 placeholder:text-slate-300" placeholder="Escriba el nombre completo..." value={patient.name} onChange={e => setPatient({...patient, name: e.target.value})} />
                                         </div>
-                                        <div className="space-y-2">
-                                            <label className="text-[10px] font-black text-slate-500 ml-1">TELÉFONO</label>
-                                            <input type="tel" className="w-full border-2 border-slate-50 bg-slate-50 p-4 rounded-2xl text-sm outline-none focus:bg-white focus:border-sky-200 transition-all font-bold text-slate-700" placeholder="+..." value={patient.phone} onChange={e => setPatient({...patient, phone: e.target.value})} />
+                                        <div className="group">
+                                            <label className="text-[10px] font-black text-slate-400 ml-1 mb-2 block tracking-widest group-focus-within:text-sky-500 transition-colors">TELÉFONO / WHATSAPP</label>
+                                            <input type="tel" className="w-full border-2 border-slate-50 bg-slate-50 p-5 rounded-[1.5rem] text-sm outline-none focus:bg-white focus:border-sky-100 transition-all font-bold text-slate-700 placeholder:text-slate-300" placeholder="+..." value={patient.phone} onChange={e => setPatient({...patient, phone: e.target.value})} />
                                         </div>
-                                        <div className="space-y-2 pt-4 border-t border-slate-50">
-                                            <label className="text-[10px] font-black text-slate-500 ml-1">NOTAS Y TRATAMIENTO</label>
-                                            <textarea className="w-full border-2 border-slate-50 bg-slate-50 p-5 rounded-2xl text-sm h-64 resize-none outline-none focus:bg-white focus:border-sky-200 transition-all font-medium text-slate-600 leading-relaxed" placeholder="Notas del tratamiento..." value={notes} onChange={e => setNotes(e.target.value)}></textarea>
+                                        <div className="pt-8 border-t border-slate-50">
+                                            <label className="text-[10px] font-black text-slate-400 ml-1 mb-2 block tracking-widest">OBSERVACIONES CLÍNICAS</label>
+                                            <textarea className="w-full border-2 border-slate-50 bg-slate-50 p-6 rounded-[2rem] text-sm h-48 resize-none outline-none focus:bg-white focus:border-sky-100 transition-all font-medium text-slate-600 leading-relaxed" placeholder="Antecedentes, alergias, plan de tratamiento..." value={notes} onChange={e => setNotes(e.target.value)}></textarea>
                                         </div>
+                                    </div>
+                                </section>
+
+                                {/* Historial de Cambios - LOOK AND FEEL PREMIUM */}
+                                <section className="bg-white p-10 rounded-[3rem] border border-slate-100 shadow-sm print-hide">
+                                    <h2 className="text-[11px] font-[900] text-slate-400 uppercase tracking-[0.3em] mb-8 flex items-center gap-3 italic">
+                                        <Icons.Clock size={16} className="text-sky-500"/> Evolución y Cambios
+                                    </h2>
+                                    <div className="max-h-80 overflow-y-auto custom-scrollbar pr-2 space-y-4">
+                                        {logs.length === 0 ? (
+                                            <p className="text-slate-300 text-xs text-center py-10 font-bold uppercase tracking-widest italic">Sin actividad reciente</p>
+                                        ) : (
+                                            logs.map(log => (
+                                                <div key={log.id} className="flex gap-4 group">
+                                                    <div className="flex flex-col items-center">
+                                                        <div className="w-2 h-2 rounded-full bg-sky-200 mt-2 group-hover:bg-sky-500 transition-colors"></div>
+                                                        <div className="w-px h-full bg-slate-100 group-last:hidden"></div>
+                                                    </div>
+                                                    <div className="pb-6">
+                                                        <p className="text-[10px] font-black text-slate-300 uppercase tracking-tighter mb-1">
+                                                            {new Date(log.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                                                        </p>
+                                                        <p className="text-xs font-bold text-slate-600 leading-relaxed">{log.text}</p>
+                                                    </div>
+                                                </div>
+                                            ))
+                                        )}
                                     </div>
                                 </section>
                             </div>
 
-                            <div className="lg:col-span-8 space-y-6">
-                                <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm print-hide">
-                                    <div className="flex flex-col sm:flex-row justify-between items-center mb-8 gap-4 px-2">
-                                        <div className="flex bg-slate-100 p-1.5 rounded-2xl w-full sm:w-auto">
-                                            <button onClick={() => setDentition('adult')} className={`flex-1 sm:flex-none px-8 py-2.5 text-[10px] font-black rounded-xl transition-all ${dentition === 'adult' ? 'bg-white shadow-sm text-sky-600' : 'text-slate-400 hover:text-slate-600'}`}>ADULTO</button>
-                                            <button onClick={() => setDentition('child')} className={`flex-1 sm:flex-none px-8 py-2.5 text-[10px] font-black rounded-xl transition-all ${dentition === 'child' ? 'bg-white shadow-sm text-sky-600' : 'text-slate-400 hover:text-slate-600'}`}>INFANTIL</button>
+                            {/* Panel Derecho: Odontograma y Herramientas */}
+                            <div className="lg:col-span-8 space-y-8">
+                                <div className="bg-white p-8 rounded-[3rem] border border-slate-100 shadow-sm print-hide">
+                                    <div className="flex flex-col sm:flex-row justify-between items-center mb-10 gap-6">
+                                        <div className="flex bg-slate-100 p-2 rounded-[2rem] w-full sm:w-auto">
+                                            <button onClick={() => setDentition('adult')} className={`flex-1 sm:flex-none px-10 py-3 text-[10px] font-[900] rounded-[1.5rem] transition-all tracking-widest ${dentition === 'adult' ? 'bg-white shadow-xl text-sky-600' : 'text-slate-400 hover:text-slate-600'}`}>ADULTO</button>
+                                            <button onClick={() => setDentition('child')} className={`flex-1 sm:flex-none px-10 py-3 text-[10px] font-[900] rounded-[1.5rem] transition-all tracking-widest ${dentition === 'child' ? 'bg-white shadow-xl text-sky-600' : 'text-slate-400 hover:text-slate-600'}`}>INFANTIL</button>
                                         </div>
-                                        <p className="text-[10px] font-black text-slate-300 uppercase italic tracking-widest">Herramientas</p>
+                                        <div className="h-px bg-slate-100 flex-1 hidden sm:block mx-10"></div>
+                                        <p className="text-[10px] font-black text-slate-300 uppercase italic tracking-[0.2em]">Paleta Clínica</p>
                                     </div>
-                                    <div className="grid grid-cols-3 md:grid-cols-6 gap-4">
-                                        {DENTAL_TOOLS_CONFIG.map(t => (
-                                            <button key={t.id} onClick={() => setCurrentTool(t)} className={`flex flex-col items-center gap-3 p-5 rounded-[1.5rem] border-2 transition-all ${currentTool.id === t.id ? 'border-sky-500 bg-sky-50 shadow-inner' : 'bg-white border-transparent hover:bg-slate-50'}`}>
-                                                <span className="text-3xl">{t.icon}</span>
+                                    <div className="grid grid-cols-3 md:grid-cols-6 gap-6">
+                                        {DENTAL_TOOLS.map(t => (
+                                            <button key={t.id} onClick={() => setCurrentTool(t)} className={`flex flex-col items-center gap-4 p-6 rounded-[2.5rem] border-2 transition-all ${currentTool.id === t.id ? 'border-sky-500 bg-sky-50 shadow-inner' : 'bg-white border-transparent hover:bg-slate-50'}`}>
+                                                <span className="text-4xl drop-shadow-sm">{t.icon}</span>
                                                 <span className="text-[9px] font-black text-slate-600 uppercase tracking-tighter">{t.name}</span>
                                             </button>
                                         ))}
                                     </div>
                                 </div>
 
-                                <div className="bg-white p-12 rounded-[2.5rem] border border-slate-100 shadow-xl odontograma-card overflow-x-auto custom-scrollbar">
-                                    <div className="odontograma-container space-y-20 py-10">
-                                        <div className="flex justify-center gap-16 relative">
-                                            <div className="flex gap-3">{(dentition === 'adult' ? PERMANENT_QUADRANTS : PRIMARY_QUADRANTS).UR.fdi.map(id => <ToothComp key={id} fdiId={id}/>)}</div>
-                                            <div className="w-px bg-slate-100 absolute left-1/2 h-full opacity-50"></div>
-                                            <div className="flex gap-3">{(dentition === 'adult' ? PERMANENT_QUADRANTS : PRIMARY_QUADRANTS).UL.fdi.map(id => <ToothComp key={id} fdiId={id}/>)}</div>
+                                <div className="bg-white p-12 md:p-20 rounded-[4rem] border border-slate-100 shadow-2xl odontograma-card overflow-x-auto custom-scrollbar">
+                                    <div className="min-w-[800px] space-y-24 py-10 relative">
+                                        {/* Eje de simetría */}
+                                        <div className="absolute left-1/2 top-0 bottom-0 w-px bg-slate-50 opacity-50 z-0"></div>
+                                        
+                                        {/* Arcada Superior */}
+                                        <div className="flex justify-center gap-20 relative z-10">
+                                            <div className="flex gap-4">{(dentition === 'adult' ? PERMANENT_QUADRANTS : PRIMARY_QUADRANTS).UR.fdi.map(id => <ToothComp key={id} fdiId={id}/>)}</div>
+                                            <div className="flex gap-4">{(dentition === 'adult' ? PERMANENT_QUADRANTS : PRIMARY_QUADRANTS).UL.fdi.map(id => <ToothComp key={id} fdiId={id}/>)}</div>
                                         </div>
-                                        <div className="flex justify-center gap-16 relative">
-                                            <div className="flex gap-3">{(dentition === 'adult' ? PERMANENT_QUADRANTS : PRIMARY_QUADRANTS).LR.fdi.map(id => <ToothComp key={id} fdiId={id}/>)}</div>
-                                            <div className="w-px bg-slate-100 absolute left-1/2 h-full opacity-50"></div>
-                                            <div className="flex gap-3">{(dentition === 'adult' ? PERMANENT_QUADRANTS : PRIMARY_QUADRANTS).LL.fdi.map(id => <ToothComp key={id} fdiId={id}/>)}</div>
+
+                                        {/* Arcada Inferior */}
+                                        <div className="flex justify-center gap-20 relative z-10">
+                                            <div className="flex gap-4">{(dentition === 'adult' ? PERMANENT_QUADRANTS : PRIMARY_QUADRANTS).LR.fdi.map(id => <ToothComp key={id} fdiId={id}/>)}</div>
+                                            <div className="flex gap-4">{(dentition === 'adult' ? PERMANENT_QUADRANTS : PRIMARY_QUADRANTS).LL.fdi.map(id => <ToothComp key={id} fdiId={id}/>)}</div>
                                         </div>
                                     </div>
                                 </div>
